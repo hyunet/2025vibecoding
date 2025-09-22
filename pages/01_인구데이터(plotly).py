@@ -18,17 +18,22 @@ total_df.columns = total_df.columns.str.strip()
 age_cols_mf = [col for col in mf_df.columns if "세" in col]
 age_cols_total = [col for col in total_df.columns if "세" in col]
 
-# 수치형으로 변환
+# ✅ 수치형으로 안전 변환 (최소 수정)
 def clean_numeric(df, cols):
+    df = df.copy()
     for col in cols:
-        if df[col].dtype == object:
-            df[col] = df[col].str.replace(",", "").astype(int)
+        # 문자열화 후 콤마/특수공백 제거 → 숫자 변환 실패시 NaN으로
+        s = (df[col].astype(str)
+                      .str.replace("\u00a0", "", regex=False)  # NBSP 제거
+                      .str.replace(",", "", regex=False)
+                      .str.strip())
+        df[col] = pd.to_numeric(s, errors="coerce").astype("Int64")  # nullable int
     return df
 
 mf_df = clean_numeric(mf_df, age_cols_mf)
 total_df = clean_numeric(total_df, age_cols_total)
 
-# 지역 리스트 추출
+# 지역 리스트 추출 (그대로)
 mf_df['지역'] = mf_df['행정구역'].str.extract(r"([\uAC00-\uD7AF\s]+구|\w+시|\w+군|\w+읍|\w+면)")
 region_options = mf_df['지역'].dropna().unique().tolist()
 region_options.sort()
@@ -46,8 +51,9 @@ with tab1:
         female_cols = [col for col in age_cols_mf if "_여_" in col]
         age_labels = [col.split("_")[-1] for col in male_cols]
 
-        male = filtered.iloc[0][male_cols].values * -1  # 좌측으로 뒤집기
-        female = filtered.iloc[0][female_cols].values
+        # ✅ Plotly로 넘기기 전에 NaN→0 처리 (최소 수정)
+        male = filtered.iloc[0][male_cols].fillna(0).astype(int).values * -1
+        female = filtered.iloc[0][female_cols].fillna(0).astype(int).values
 
         fig = go.Figure()
         fig.add_trace(go.Bar(x=male, y=age_labels, orientation='h', name='남성', marker_color='blue'))
@@ -56,7 +62,7 @@ with tab1:
         fig.update_layout(
             title=f"{region} 인구 피라미드",
             barmode='relative',
-            xaxis=dict(title='인구 수', tickvals=[-2000, 0, 2000]),
+            xaxis=dict(title='인구 수'),
             yaxis=dict(title='연령'),
             height=700
         )
@@ -66,11 +72,12 @@ with tab1:
 
 with tab2:
     region2 = st.selectbox("지역 선택 (전체 인구)", region_options, key="tab2")
-    filtered2 = total_df[total_df['행정구역'].str.contains(region2)]
+    filtered2 = total_df[total_df['행정구역'].str.contains(region2, na=False)]
 
     if not filtered2.empty:
         age_labels = [col.split("_")[-1] for col in age_cols_total]
-        total_pop = filtered2.iloc[0][age_cols_total].values
+        # ✅ NaN→0 처리 (최소 수정)
+        total_pop = filtered2.iloc[0][age_cols_total].fillna(0).astype(int).values
 
         fig2 = go.Figure()
         fig2.add_trace(go.Scatter(x=age_labels, y=total_pop, mode='lines+markers', name='총인구'))
