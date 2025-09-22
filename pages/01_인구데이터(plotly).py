@@ -18,25 +18,30 @@ total_df.columns = total_df.columns.str.strip()
 age_cols_mf = [col for col in mf_df.columns if "세" in col]
 age_cols_total = [col for col in total_df.columns if "세" in col]
 
-# ✅ 수치형으로 안전 변환 (최소 수정)
+# ✅ 수치형으로 변환(안전하게): 콤마/특수공백 제거 후 숫자만 남기고 nullable 정수(Int64)로 보관
 def clean_numeric(df, cols):
     df = df.copy()
     for col in cols:
-        # 문자열화 후 콤마/특수공백 제거 → 숫자 변환 실패시 NaN으로
         s = (df[col].astype(str)
-                      .str.replace("\u00a0", "", regex=False)  # NBSP 제거
-                      .str.replace(",", "", regex=False)
-                      .str.strip())
-        df[col] = pd.to_numeric(s, errors="coerce").astype("Int64")  # nullable int
+                     .str.replace("\u00a0", "", regex=False)  # NBSP 제거
+                     .str.replace(",", "", regex=False)
+                     .str.strip())
+        df[col] = pd.to_numeric(s, errors="coerce").astype("Int64")
     return df
 
 mf_df = clean_numeric(mf_df, age_cols_mf)
 total_df = clean_numeric(total_df, age_cols_total)
 
-# 지역 리스트 추출 (그대로)
+# 지역 리스트 추출
+# 남녀구분 파일에서 지역 후보
 mf_df['지역'] = mf_df['행정구역'].str.extract(r"([\uAC00-\uD7AF\s]+구|\w+시|\w+군|\w+읍|\w+면)")
 region_options = mf_df['지역'].dropna().unique().tolist()
 region_options.sort()
+
+# ✅ 남녀합계 파일에서 지역 후보(전체 인구 구조 탭 전용)
+total_df['지역'] = total_df['행정구역'].str.extract(r"([\uAC00-\uD7AF\s]+구|\w+시|\w+군|\w+읍|\w+면)")
+region_options_total = total_df['지역'].dropna().unique().tolist()
+region_options_total.sort()
 
 # Streamlit UI
 st.title("🧭 연령별 인구 시각화 대시보드")
@@ -44,15 +49,16 @@ tab1, tab2 = st.tabs(["👫 남녀 인구 피라미드", "👥 전체 인구 구
 
 with tab1:
     region = st.selectbox("지역 선택 (남녀 피라미드)", region_options, key="tab1")
-    filtered = mf_df[mf_df['지역'] == region]
+    # ✅ 완전일치 대신 부분 일치 사용(원본에 코드/괄호가 함께 있을 수 있음)
+    filtered = mf_df[mf_df['행정구역'].astype(str).str.contains(region, na=False)]
 
     if not filtered.empty:
         male_cols = [col for col in age_cols_mf if "_남_" in col]
         female_cols = [col for col in age_cols_mf if "_여_" in col]
         age_labels = [col.split("_")[-1] for col in male_cols]
 
-        # ✅ Plotly로 넘기기 전에 NaN→0 처리 (최소 수정)
-        male = filtered.iloc[0][male_cols].fillna(0).astype(int).values * -1
+        # Plotly로 넘기기 전 NaN → 0
+        male = filtered.iloc[0][male_cols].fillna(0).astype(int).values * -1  # 좌측으로 뒤집기
         female = filtered.iloc[0][female_cols].fillna(0).astype(int).values
 
         fig = go.Figure()
@@ -71,18 +77,19 @@ with tab1:
         st.warning("해당 지역 데이터가 없습니다.")
 
 with tab2:
-    region2 = st.selectbox("지역 선택 (전체 인구)", region_options, key="tab2")
-    filtered2 = total_df[total_df['행정구역'].str.contains(region2, na=False)]
+    # ✅ 남녀합계(total_df) 기준 지역 선택
+    region2 = st.selectbox("지역 선택 (전체 인구)", region_options_total, key="tab2")
+    # ✅ 필터링도 total_df에서 수행
+    filtered2 = total_df[total_df['행정구역'].astype(str).str.contains(region2, na=False)]
 
     if not filtered2.empty:
         age_labels = [col.split("_")[-1] for col in age_cols_total]
-        # ✅ NaN→0 처리 (최소 수정)
         total_pop = filtered2.iloc[0][age_cols_total].fillna(0).astype(int).values
 
         fig2 = go.Figure()
         fig2.add_trace(go.Scatter(x=age_labels, y=total_pop, mode='lines+markers', name='총인구'))
         fig2.update_layout(
-            title=f"{region2} 연령별 인구 구조",
+            title=f"{region2} 연령별 인구 구조 (남녀합계 기준)",
             xaxis_title='연령',
             yaxis_title='인구 수',
             height=600
