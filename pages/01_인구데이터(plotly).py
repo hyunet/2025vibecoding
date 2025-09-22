@@ -3,8 +3,8 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # 파일 경로
-mf_path = "202504_202504_연령별인구현황_월간_남녀구분.csv"
-total_path = "202504_202504_연령별인구현황_월간_남녀합계.csv"
+mf_path = "202508_202508_연령별인구현황_월간_남녀구분.csv"
+total_path = "202508_202508_연령별인구현황_월간_남녀합계.csv"
 
 # CSV 불러오기
 mf_df = pd.read_csv(mf_path, encoding='cp949')
